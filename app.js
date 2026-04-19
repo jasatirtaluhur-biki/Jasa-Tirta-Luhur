@@ -1,7 +1,7 @@
 // ==========================================
 // KONFIGURASI API
 // ==========================================
-const API_URL = 'https://script.google.com/macros/s/AKfycbyAuoIiqvnc154tXoArfKdA0q3aLvuECzpE0I3R6ClXYZ_LeFdOQpoNiqxKCiLQCQl2/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbyvDGJQIX0w48Qztdhsv2-hrxxfyQqQD6PxGRTGkvAfcmnt9K4zi8wyUn3xSi5TgpV3/exec';
 
 // ==========================================
 // STATE MANAGEMENT
