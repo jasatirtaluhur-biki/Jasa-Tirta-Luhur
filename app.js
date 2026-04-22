@@ -33,8 +33,8 @@ window.onload = function() {
     const val = this.value.trim();
     hideSuggestions();
     if (val.length === 0) { clearAutoFill(); return; }
-    // ✅ Search mulai 2 karakter — untuk 3 angka terakhir cukup ketik "01" dst
-    if (val.length >= 2) {
+    // ✅ FIX: Search mulai 3 karakter — agar mode 3 digit terakhir bekerja benar
+    if (val.length >= 3) {
       lookupTimer = setTimeout(() => fetchSuggestions(val), 350);
     }
   });
@@ -589,7 +589,8 @@ function selectSuggestion(data) {
 // Isi field form dari data master
 function fillFromMaster(data) {
   if (data.nama)          document.getElementById('nama').value          = data.nama;
-  if (data.alamat)        document.getElementById('alamat').value        = data.alamat;
+  // ✅ FIX: master tidak punya alamat — isi dengan lokasiBlok sebagai referensi awal
+  if (data.lokasiBlok)    document.getElementById('alamat').value        = data.lokasiBlok;
   if (data.jenisPengguna) document.getElementById('jenisPengguna').value = data.jenisPengguna;
 
   // Highlight field yang terisi otomatis
