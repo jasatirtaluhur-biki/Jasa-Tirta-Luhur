@@ -1,7 +1,7 @@
 // ==========================================
 // KONFIGURASI API
 // ==========================================
-const API_URL = 'https://script.google.com/macros/s/AKfycbxwbXZR1FT7RAHdMWSOkqvgNbIey5GpUeHTjC_EHmUbgjlgiOrOvqe1ioOIhjYUydQu/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbzlyKR8z4Wnt351KJpt9HX2Po94rQaRjjBvo8HaRsElg2I-6oLEVTVlxz8pMnOej4jS/exec';
 
 // ==========================================
 // STATE MANAGEMENT
@@ -33,12 +33,9 @@ window.onload = function() {
     const val = this.value.trim();
     hideSuggestions();
     if (val.length === 0) { clearAutoFill(); return; }
-    if (val.length >= 3) {
-      lookupTimer = setTimeout(() => fetchSuggestions(val), 400);
-    }
-    if (val.length === 8 && /^\d+$/.test(val)) {
-      clearTimeout(lookupTimer);
-      lookupTimer = setTimeout(() => lookupAndFill(val), 300);
+    // ✅ Search mulai 2 karakter — untuk 3 angka terakhir cukup ketik "01" dst
+    if (val.length >= 2) {
+      lookupTimer = setTimeout(() => fetchSuggestions(val), 350);
     }
   });
 
@@ -227,13 +224,20 @@ async function saveData() {
   const tanggal      = document.getElementById('tanggal').value;
   const nama         = document.getElementById('nama').value.trim();
   const alamat       = document.getElementById('alamat').value.trim();
-  const kondisi      = document.getElementById('kondisi').value;       // ✅ UBAH
-  const jenisPengguna = document.getElementById('jenisPengguna').value; // ✅ BARU
-  const catatan      = document.getElementById('catatan').value.trim();
+  const kondisi       = document.getElementById('kondisi').value;
+  const jenisPengguna = document.getElementById('jenisPengguna').value;
+  const nomorMeterLama = document.getElementById('nomorMeterLama').value.trim(); // ✅ BARU
+  const nomorMeterBaru = document.getElementById('nomorMeterBaru').value.trim(); // ✅ BARU
+  const catatan       = document.getElementById('catatan').value.trim();
 
   // Validasi field wajib teks
   if (!idPelanggan || !tanggal || !nama || !alamat || !kondisi || !jenisPengguna) {
     showNotification('Semua field wajib (*) harus diisi!', 'error');
+    return;
+  }
+  if (!nomorMeterBaru) {
+    showNotification('No. Water Meter Baru wajib diisi!', 'error');
+    document.getElementById('nomorMeterBaru').focus();
     return;
   }
 
@@ -259,9 +263,11 @@ async function saveData() {
       tanggal,
       nama,
       alamat,
-      kondisi,                  // ✅ UBAH: ganti dari 'status'
-      jenisPengguna,            // ✅ BARU
-      photoBase64,              // ✅ UBAH: selalu terisi (sudah divalidasi)
+      kondisi,
+      jenisPengguna,
+      nomorMeterLama,           // ✅ BARU
+      nomorMeterBaru,           // ✅ BARU
+      photoBase64,
       catatan
     };
 
@@ -292,8 +298,10 @@ function clearForm() {
   document.getElementById('tanggal').valueAsDate  = new Date();
   document.getElementById('nama').value           = '';
   document.getElementById('alamat').value         = '';
-  document.getElementById('kondisi').value        = '';    // ✅ UBAH
-  document.getElementById('jenisPengguna').value  = '';    // ✅ BARU
+  document.getElementById('kondisi').value        = '';
+  document.getElementById('jenisPengguna').value  = '';
+  document.getElementById('nomorMeterLama').value = '';    // ✅ BARU
+  document.getElementById('nomorMeterBaru').value = '';    // ✅ BARU
   document.getElementById('catatan').value        = '';
 
   // Reset kamera
@@ -418,6 +426,8 @@ function viewDetail(record) {
         ${detailRow('📅 Tanggal',        record.tanggal || '-')}
         ${detailRow('💧 Kondisi Meter',  `<span class="status-badge ${kondisiClass}">${kondisiIcon} ${record.kondisi}</span>`)}
         ${detailRow('👥 Jenis Pengguna', `<span class="status-badge jenis-badge">${jenisIcon} ${record.jenisPengguna}</span>`)}
+        ${record.nomorMeterLama ? detailRow('🔢 No. Meter Lama', record.nomorMeterLama) : ''}
+        ${record.nomorMeterBaru  ? detailRow('🔢 No. Meter Baru',  record.nomorMeterBaru)  : ''}
         ${record.catatan ? detailRow('📝 Catatan', record.catatan) : ''}
         ${detailRow('🕐 Dibuat',         date)}
         ${detailRow('👷 Operator',       record.createdBy)}
