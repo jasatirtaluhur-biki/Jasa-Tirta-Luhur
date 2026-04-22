@@ -1,15 +1,16 @@
 // ==========================================
 // KONFIGURASI API
 // ==========================================
-const API_URL = 'https://script.google.com/macros/s/AKfycbxHQvQ9i87qgKx0sKoYe3ihhqL7U86ng6wQCULjixYEpW5MxosouKsB8WuoX8YcU9-Z/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbzlyKR8z4Wnt351KJpt9HX2Po94rQaRjjBvo8HaRsElg2I-6oLEVTVlxz8pMnOej4jS/exec';
 
 // ==========================================
 // STATE MANAGEMENT
 // ==========================================
-let currentUser  = null;
-let photoBase64  = null;
-let stream       = null;
+let currentUser    = null;
+let photoBase64    = null;
+let stream         = null;
 let deferredPrompt = null;
+let lookupTimer    = null;   // debounce untuk auto-fill ID pelanggan
 
 // ==========================================
 // INITIALIZATION
@@ -23,6 +24,27 @@ window.onload = function() {
 
   // Set default date to today
   document.getElementById('tanggal').valueAsDate = new Date();
+
+  // ✅ BARU: Auto-fill saat operator mengetik ID Pelanggan
+  const idInput = document.getElementById('idPelanggan');
+
+  idInput.addEventListener('input', function() {
+    clearTimeout(lookupTimer);
+    const val = this.value.trim();
+    hideSuggestions();
+    if (val.length === 0) { clearAutoFill(); return; }
+    if (val.length >= 3) {
+      lookupTimer = setTimeout(() => fetchSuggestions(val), 400);
+    }
+    if (val.length === 8 && /^\d+$/.test(val)) {
+      clearTimeout(lookupTimer);
+      lookupTimer = setTimeout(() => lookupAndFill(val), 300);
+    }
+  });
+
+  document.addEventListener('click', function(e) {
+    if (!e.target.closest('.id-input-wrapper')) hideSuggestions();
+  });
 
   // Enter key di field login
   document.getElementById('loginUsername').addEventListener('keydown', function(e) {
@@ -473,4 +495,110 @@ function showNotification(message, type = 'success') {
 // Request notification permission
 if ('Notification' in window && Notification.permission === 'default') {
   Notification.requestPermission();
+}
+
+// ==========================================
+// AUTO-FILL ID PELANGGAN (MASTER LOOKUP)
+// ==========================================
+
+// Lookup eksak — isi semua field otomatis
+async function lookupAndFill(idPelanggan) {
+  const indicator = document.getElementById('lookupIndicator');
+  if (indicator) { indicator.textContent = '🔍 Mencari...'; indicator.className = 'lookup-indicator looking'; }
+
+  try {
+    const response = await fetch(API_URL, {
+      method: 'POST',
+      body: JSON.stringify({ action: 'lookupPelanggan', idPelanggan })
+    });
+    const result = await response.json();
+
+    if (result.success) {
+      fillFromMaster(result.data);
+      if (indicator) { indicator.textContent = '✅ Ditemukan'; indicator.className = 'lookup-indicator found'; }
+      showNotification('✅ Data pelanggan ditemukan!', 'success');
+    } else {
+      if (indicator) { indicator.textContent = '❌ Tidak ditemukan'; indicator.className = 'lookup-indicator notfound'; }
+    }
+  } catch (err) {
+    if (indicator) { indicator.textContent = ''; indicator.className = 'lookup-indicator'; }
+    console.error('lookupAndFill error:', err);
+  }
+}
+
+// Fetch suggestions untuk autocomplete dropdown
+async function fetchSuggestions(query) {
+  try {
+    const response = await fetch(API_URL, {
+      method: 'POST',
+      body: JSON.stringify({ action: 'searchPelanggan', query, limit: 7 })
+    });
+    const result = await response.json();
+
+    if (result.success && result.data.suggestions.length > 0) {
+      showSuggestions(result.data.suggestions);
+    } else {
+      hideSuggestions();
+    }
+  } catch (err) {
+    hideSuggestions();
+  }
+}
+
+// Tampilkan dropdown suggestions
+function showSuggestions(suggestions) {
+  let dropdown = document.getElementById('suggestionDropdown');
+  if (!dropdown) {
+    dropdown = document.createElement('div');
+    dropdown.id = 'suggestionDropdown';
+    dropdown.className = 'suggestion-dropdown';
+    const wrapper = document.getElementById('idPelanggan').closest('.id-input-wrapper') || document.getElementById('idPelanggan').parentNode;
+    wrapper.style.position = 'relative';
+    wrapper.appendChild(dropdown);
+  }
+
+  dropdown.innerHTML = suggestions.map(s => `
+    <div class="suggestion-item" onclick="selectSuggestion(${JSON.stringify(s).replace(/"/g, '&quot;')})">
+      <div class="suggestion-id">${s.idPelanggan}</div>
+      <div class="suggestion-nama">${s.nama}</div>
+      <div class="suggestion-meta">${s.jenisPengguna} • ${s.lokasiBlok}</div>
+    </div>
+  `).join('');
+
+  dropdown.style.display = 'block';
+}
+
+// User klik salah satu suggestion
+function selectSuggestion(data) {
+  document.getElementById('idPelanggan').value = data.idPelanggan;
+  hideSuggestions();
+  fillFromMaster(data);
+  showNotification('✅ Data pelanggan diisi otomatis!', 'success');
+}
+
+// Isi field form dari data master
+function fillFromMaster(data) {
+  if (data.nama)          document.getElementById('nama').value          = data.nama;
+  if (data.alamat)        document.getElementById('alamat').value        = data.alamat;
+  if (data.jenisPengguna) document.getElementById('jenisPengguna').value = data.jenisPengguna;
+
+  // Highlight field yang terisi otomatis
+  ['nama', 'alamat', 'jenisPengguna'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.classList.add('autofilled');
+      setTimeout(() => el.classList.remove('autofilled'), 2500);
+    }
+  });
+}
+
+// Kosongkan field auto-fill saat ID dihapus
+function clearAutoFill() {
+  const indicator = document.getElementById('lookupIndicator');
+  if (indicator) { indicator.textContent = ''; indicator.className = 'lookup-indicator'; }
+}
+
+function hideSuggestions() {
+  const d = document.getElementById('suggestionDropdown');
+  if (d) d.style.display = 'none';
 }
