@@ -1,7 +1,22 @@
 // ==========================================
-// KONFIGURASI API
+// 🔐 KONFIGURASI API + SECURITY
 // ==========================================
-const API_URL = 'https://script.google.com/macros/s/AKfycbymmCKeAsEP-WsMdHMj-BeaZ7bz73N7iO75Au7IoGmMcP6eP89qMzjyQ7_ja_GkghuJ/exec';
+// PENTING: Samakan API_SECRET_KEY dengan
+// nilai CONFIG.API_SECRET_KEY di Code.gs
+// ==========================================
+https://script.google.com/macros/s/AKfycbwehJ1r5mBAPbfLpSl6d_NpCIWh6miSoeImXnbp0SlHK1VI8SB8tvBpPNlgg8U968s/exec
+const API_CONFIG = (function() {
+  // URL dipecah agar tidak mudah di-scrape bot
+  const _p1 = 'https://script.google.com';
+  const _p2 = '/macros/s/AKfycbwehJ1r5mBAPbfLpSl6d';
+  const _p3 = 'NpCIWh6miSoeImXnbp0SlHK1VI8SB8tvBpPNlgg8U968s';
+  const _p4 = '/exec';
+  return {
+    url:    _p1 + _p2 + _p3 + _p4,
+    // ⚠️ Ganti nilai ini — harus sama persis dengan CONFIG.API_SECRET_KEY di Code.gs
+    apiKey: 'JTL@S3cr3t!K3y#2026$Luhur'
+  };
+})();
 
 // ==========================================
 // STATE MANAGEMENT
@@ -10,7 +25,44 @@ let currentUser    = null;
 let photoBase64    = null;
 let stream         = null;
 let deferredPrompt = null;
-let lookupTimer    = null;   // debounce untuk auto-fill ID pelanggan
+let lookupTimer    = null;
+
+// ==========================================
+// 🔐 HELPER: Semua request ke API lewat sini
+// Otomatis menyertakan apiKey + sessionToken
+// ==========================================
+async function callAPI(payload) {
+  const body = Object.assign({}, payload, {
+    apiKey: API_CONFIG.apiKey
+  });
+
+  // Sertakan sessionToken & userId untuk semua request selain login
+  if (currentUser && payload.action !== 'login') {
+    body.sessionToken = currentUser.sessionToken;
+    body.userId       = body.userId || currentUser.userId;
+  }
+
+  const response = await fetch(API_CONFIG.url, {
+    method: 'POST',
+    body:   JSON.stringify(body)
+  });
+
+  const result = await response.json();
+
+  // ✅ Auto-handle session expired
+  if (!result.success && result.message && result.message.includes('Session')) {
+    localStorage.removeItem('currentUser');
+    currentUser = null;
+    showNotification('⏰ Sesi habis. Silakan login ulang.', 'error');
+    setTimeout(() => {
+      document.getElementById('mainApp').classList.add('hidden');
+      document.getElementById('loginScreen').classList.remove('hidden');
+    }, 1500);
+    throw new Error('Session expired');
+  }
+
+  return result;
+}
 
 // ==========================================
 // INITIALIZATION
@@ -18,22 +70,28 @@ let lookupTimer    = null;   // debounce untuk auto-fill ID pelanggan
 window.onload = function() {
   const savedUser = localStorage.getItem('currentUser');
   if (savedUser) {
-    currentUser = JSON.parse(savedUser);
-    showMainApp();
+    try {
+      currentUser = JSON.parse(savedUser);
+      // Validasi minimal — harus punya sessionToken
+      if (!currentUser.sessionToken) {
+        localStorage.removeItem('currentUser');
+        currentUser = null;
+      } else {
+        showMainApp();
+      }
+    } catch (e) {
+      localStorage.removeItem('currentUser');
+    }
   }
 
-  // Set default date to today
   document.getElementById('tanggal').valueAsDate = new Date();
 
-  // ✅ BARU: Auto-fill saat operator mengetik ID Pelanggan
   const idInput = document.getElementById('idPelanggan');
-
   idInput.addEventListener('input', function() {
     clearTimeout(lookupTimer);
     const val = this.value.trim();
     hideSuggestions();
     if (val.length === 0) { clearAutoFill(); return; }
-    // ✅ FIX: Search mulai 3 karakter — agar mode 3 digit terakhir bekerja benar
     if (val.length >= 3) {
       lookupTimer = setTimeout(() => fetchSuggestions(val), 350);
     }
@@ -43,7 +101,6 @@ window.onload = function() {
     if (!e.target.closest('.id-input-wrapper')) hideSuggestions();
   });
 
-  // Enter key di field login
   document.getElementById('loginUsername').addEventListener('keydown', function(e) {
     if (e.key === 'Enter') document.getElementById('loginPassword').focus();
   });
@@ -65,9 +122,7 @@ function installPWA() {
   if (deferredPrompt) {
     deferredPrompt.prompt();
     deferredPrompt.userChoice.then((choiceResult) => {
-      if (choiceResult.outcome === 'accepted') {
-        showNotification('Aplikasi berhasil diinstall!', 'success');
-      }
+      if (choiceResult.outcome === 'accepted') showNotification('Aplikasi berhasil diinstall!', 'success');
       deferredPrompt = null;
       document.getElementById('installBtn').style.display = 'none';
     });
@@ -87,44 +142,53 @@ async function login() {
   }
 
   const loginBtn = document.querySelector('#loginScreen .btn-primary');
-  loginBtn.disabled = true;
+  loginBtn.disabled    = true;
   loginBtn.textContent = '⏳ Memproses...';
 
   try {
-    const response = await fetch(API_URL, {
-      method: 'POST',
-      body: JSON.stringify({ action: 'login', username, password })
-    });
-
-    const result = await response.json();
+    // Login langsung pakai callAPI — apiKey otomatis disertakan
+    const result = await callAPI({ action: 'login', username, password });
 
     if (result.success) {
       currentUser = result.data;
+      // Simpan ke localStorage termasuk sessionToken
       localStorage.setItem('currentUser', JSON.stringify(currentUser));
       showNotification('Login berhasil! Selamat datang, ' + currentUser.nama, 'success');
       showMainApp();
     } else {
-      showNotification(result.message, 'error');
+      showNotification(result.message || 'Login gagal', 'error');
     }
   } catch (error) {
-    showNotification('Gagal connect ke server: ' + error.message, 'error');
+    if (!error.message.includes('Session')) {
+      showNotification('Gagal connect ke server: ' + error.message, 'error');
+    }
   } finally {
-    loginBtn.disabled = false;
+    loginBtn.disabled    = false;
     loginBtn.textContent = 'Login';
   }
 }
 
-function logout() {
-  if (confirm('Yakin ingin logout?')) {
-    stopCamera();
-    localStorage.removeItem('currentUser');
-    currentUser = null;
-    document.getElementById('mainApp').classList.add('hidden');
-    document.getElementById('loginScreen').classList.remove('hidden');
-    document.getElementById('loginUsername').value = '';
-    document.getElementById('loginPassword').value = '';
-    showNotification('Logout berhasil!', 'success');
+async function logout() {
+  if (!confirm('Yakin ingin logout?')) return;
+
+  stopCamera();
+
+  // ✅ Invalidate token di server
+  try {
+    if (currentUser) {
+      await callAPI({ action: 'logout', userId: currentUser.userId });
+    }
+  } catch (e) {
+    // Tetap logout di client meski server gagal
   }
+
+  localStorage.removeItem('currentUser');
+  currentUser = null;
+  document.getElementById('mainApp').classList.add('hidden');
+  document.getElementById('loginScreen').classList.remove('hidden');
+  document.getElementById('loginUsername').value = '';
+  document.getElementById('loginPassword').value = '';
+  showNotification('Logout berhasil!', 'success');
 }
 
 function showMainApp() {
@@ -138,19 +202,14 @@ function showMainApp() {
 // ==========================================
 async function startCamera() {
   try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'environment' }
-    });
-
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
     const video = document.getElementById('video');
     video.srcObject = stream;
     video.style.display = 'block';
-
     document.getElementById('canvas').style.display = 'none';
     document.getElementById('preview').classList.add('hidden');
     document.getElementById('cameraPlaceholder').style.display = 'none';
     document.getElementById('captureBtn').disabled = false;
-
     photoBase64 = null;
     updateFotoStatus(false);
   } catch (error) {
@@ -177,7 +236,6 @@ function capturePhoto() {
 
   preview.src = photoBase64;
   preview.classList.remove('hidden');
-
   stopCamera();
   updateFotoStatus(true);
   showNotification('✅ Foto berhasil diambil!', 'success');
@@ -199,20 +257,19 @@ function stopCamera() {
     stream = null;
   }
   const video = document.getElementById('video');
-  video.srcObject = null;
+  video.srcObject   = null;
   video.style.display = 'none';
   document.getElementById('captureBtn').disabled = true;
 }
 
-// ✅ BARU: Update indikator status foto
 function updateFotoStatus(sudahAda) {
   const el = document.getElementById('fotoStatus');
   if (sudahAda) {
-    el.textContent   = '✅ Sudah diambil';
-    el.className     = 'foto-status foto-sudah';
+    el.textContent = '✅ Sudah diambil';
+    el.className   = 'foto-status foto-sudah';
   } else {
-    el.textContent   = '⚠️ Belum diambil';
-    el.className     = 'foto-status foto-belum';
+    el.textContent = '⚠️ Belum diambil';
+    el.className   = 'foto-status foto-belum';
   }
 }
 
@@ -226,12 +283,11 @@ async function saveData() {
   const alamat         = document.getElementById('alamat').value.trim();
   const kondisi        = document.getElementById('kondisi').value;
   const jenisPengguna  = document.getElementById('jenisPengguna').value;
-  const spamWilayah    = document.getElementById('spamWilayah')?.value.trim() || '';  // ✅ BARU
+  const spamWilayah    = document.getElementById('spamWilayah')?.value.trim() || '';
   const nomorMeterLama = document.getElementById('nomorMeterLama').value.trim();
   const nomorMeterBaru = document.getElementById('nomorMeterBaru').value.trim();
   const catatan        = document.getElementById('catatan').value.trim();
 
-  // Validasi field wajib teks
   if (!idPelanggan || !tanggal || !nama || !alamat || !kondisi || !jenisPengguna) {
     showNotification('Semua field wajib (*) harus diisi!', 'error');
     return;
@@ -241,56 +297,38 @@ async function saveData() {
     document.getElementById('nomorMeterBaru').focus();
     return;
   }
-
-  // ✅ UBAH: Validasi foto wajib di frontend
   if (!photoBase64) {
     showNotification('📷 Foto water meter wajib diambil!', 'error');
-    // Scroll ke area kamera
     document.getElementById('cameraContainer').scrollIntoView({ behavior: 'smooth', block: 'center' });
     return;
   }
 
   const saveBtn = document.getElementById('saveBtn');
-  saveBtn.disabled = true;
+  saveBtn.disabled    = true;
   saveBtn.textContent = '⏳ Menyimpan...';
 
   try {
-    console.log('Photo tersedia:', Math.round(photoBase64.length / 1024) + ' KB');
-
-    const payload = {
-      action:        'saveData',
-      userId:        currentUser.userId,
-      idPelanggan,
-      tanggal,
-      nama,
-      alamat,
-      kondisi,
-      jenisPengguna,
-      spamWilayah,              // ✅ BARU
-      nomorMeterLama,
-      nomorMeterBaru,
-      photoBase64,
-      catatan
-    };
-
-    const response = await fetch(API_URL, {
-      method: 'POST',
-      body: JSON.stringify(payload)
+    const result = await callAPI({
+      action: 'saveData',
+      userId: currentUser.userId,
+      idPelanggan, tanggal, nama, alamat,
+      kondisi, jenisPengguna, spamWilayah,
+      nomorMeterLama, nomorMeterBaru,
+      photoBase64, catatan
     });
-
-    const result = await response.json();
 
     if (result.success) {
       showNotification('✅ Data berhasil disimpan!', 'success');
-      console.log('Photo URL tersimpan:', result.data.photoUrl);
       clearForm();
     } else {
       showNotification('Gagal simpan: ' + result.message, 'error');
     }
   } catch (error) {
-    showNotification('Error: ' + error.message, 'error');
+    if (!error.message.includes('Session')) {
+      showNotification('Error: ' + error.message, 'error');
+    }
   } finally {
-    saveBtn.disabled = false;
+    saveBtn.disabled    = false;
     saveBtn.textContent = '💾 Simpan Data';
   }
 }
@@ -303,14 +341,12 @@ function clearForm() {
   document.getElementById('kondisi').value        = '';
   document.getElementById('jenisPengguna').value  = '';
   const spamEl = document.getElementById('spamWilayah');
-  if (spamEl) { spamEl.value = ''; spamEl.style.background = '#f0f4ff'; }  // ✅ BARU
+  if (spamEl) { spamEl.value = ''; spamEl.style.background = '#f0f4ff'; }
   const spamInd = document.getElementById('spamAutoIndicator');
   if (spamInd) spamInd.textContent = '';
   document.getElementById('nomorMeterLama').value = '';
   document.getElementById('nomorMeterBaru').value = '';
   document.getElementById('catatan').value        = '';
-
-  // Reset kamera
   document.getElementById('preview').classList.add('hidden');
   document.getElementById('preview').src          = '';
   document.getElementById('cameraPlaceholder').style.display = 'flex';
@@ -323,31 +359,24 @@ function clearForm() {
 // LOAD HISTORY
 // ==========================================
 async function loadHistory() {
-  const historyList = document.getElementById('historyList');
+  const historyList   = document.getElementById('historyList');
   historyList.innerHTML = '<div class="loading"><div class="spinner"></div>Memuat data...</div>';
 
-  // ✅ BARU: Ambil nilai filter
   const filterKondisi = document.getElementById('filterKondisi')?.value || '';
   const filterJenis   = document.getElementById('filterJenis')?.value   || '';
 
   try {
-    const response = await fetch(API_URL, {
-      method: 'POST',
-      body: JSON.stringify({
-        action:        'getHistory',
-        userId:        currentUser.userId,
-        role:          currentUser.role,
-        limit:         50,
-        filterKondisi,   // ✅ UBAH: ganti dari filterStatus
-        filterJenis      // ✅ BARU
-      })
+    const result = await callAPI({
+      action: 'getHistory',
+      userId: currentUser.userId,
+      role:   currentUser.role,
+      limit:  50,
+      filterKondisi,
+      filterJenis
     });
-
-    const result = await response.json();
 
     if (result.success) {
       const records = result.data.records;
-
       if (records.length === 0) {
         historyList.innerHTML = '<div style="text-align:center; padding:40px; color:#999;">Belum ada data</div>';
         return;
@@ -356,7 +385,6 @@ async function loadHistory() {
       let html = '';
       records.forEach(record => {
         const date         = new Date(record.createdAt).toLocaleString('id-ID');
-        // ✅ UBAH: pakai kondisi, bukan status
         const kondisiClass = record.kondisi === 'Normal' ? 'kondisi-normal' : 'kondisi-error';
         const jenisIcon    = { Penduduk: '🏠', Niaga: '🏪', Industri: '🏭' }[record.jenisPengguna] || '👤';
 
@@ -380,7 +408,9 @@ async function loadHistory() {
       historyList.innerHTML = '<div style="text-align:center; padding:40px; color:#f44336;">Gagal memuat data: ' + result.message + '</div>';
     }
   } catch (error) {
-    historyList.innerHTML = '<div style="text-align:center; padding:40px; color:#f44336;">Error: ' + error.message + '</div>';
+    if (!error.message.includes('Session')) {
+      historyList.innerHTML = '<div style="text-align:center; padding:40px; color:#f44336;">Error: ' + error.message + '</div>';
+    }
   }
 }
 
@@ -419,13 +449,11 @@ function viewDetail(record) {
           width:32px; height:32px; cursor:pointer; font-size:16px;
         ">✕</button>
       </div>
-
       <div style="margin-bottom:16px; border-radius:12px; overflow:hidden;">
         <img src="${record.photoUrl}" style="width:100%; max-height:240px; object-fit:cover; border-radius:12px;"
-          onerror="this.parentElement.innerHTML='<div style=\'padding:16px;text-align:center;color:#999;background:#f5f5f5;border-radius:12px;\'>📷 Foto tidak dapat dimuat</div>'"
+          onerror="this.parentElement.innerHTML='<div style=\\'padding:16px;text-align:center;color:#999;background:#f5f5f5;border-radius:12px;\\'>📷 Foto tidak dapat dimuat</div>'"
         />
       </div>
-
       <div style="display:flex; flex-direction:column; gap:12px;">
         ${detailRow('🆔 ID Pelanggan',   record.idPelanggan)}
         ${detailRow('👤 Nama',           record.nama)}
@@ -437,11 +465,10 @@ function viewDetail(record) {
         ${record.nomorMeterLama ? detailRow('🔢 No. Meter Lama', record.nomorMeterLama) : ''}
         ${record.nomorMeterBaru  ? detailRow('🔢 No. Meter Baru',  record.nomorMeterBaru)  : ''}
         ${record.catatan ? detailRow('📝 Catatan', record.catatan) : ''}
-        ${detailRow('🕐 Dibuat',         date)}
-        ${detailRow('👷 Operator',       record.createdBy)}
-        ${detailRow('🔗 Link Foto',      `<a href="${record.photoUrl}" target="_blank" style="color:#4285f4; word-break:break-all;">Lihat Foto di Drive</a>`)}
+        ${detailRow('🕐 Dibuat',   date)}
+        ${detailRow('👷 Operator', record.createdBy)}
+        ${detailRow('🔗 Link Foto', `<a href="${record.photoUrl}" target="_blank" style="color:#4285f4; word-break:break-all;">Lihat Foto di Drive</a>`)}
       </div>
-
       <button onclick="closeDetail()" style="
         width:100%; margin-top:20px; padding:14px; border:none;
         background:#4285f4; color:white; border-radius:8px;
@@ -452,15 +479,11 @@ function viewDetail(record) {
 
   const style = document.createElement('style');
   style.textContent = `
-    @keyframes fadeIn  { from { opacity:0 }           to { opacity:1 } }
-    @keyframes slideUp { from { transform:translateY(100%) } to { transform:translateY(0) } }
+    @keyframes fadeIn  { from { opacity:0 }                   to { opacity:1 } }
+    @keyframes slideUp { from { transform:translateY(100%) }  to { transform:translateY(0) } }
   `;
   document.head.appendChild(style);
-
-  modal.addEventListener('click', function(e) {
-    if (e.target === modal) closeDetail();
-  });
-
+  modal.addEventListener('click', function(e) { if (e.target === modal) closeDetail(); });
   document.body.appendChild(modal);
 }
 
@@ -504,13 +527,9 @@ function showNotification(message, type = 'success') {
   const notification = document.getElementById('notification');
   notification.textContent = message;
   notification.className   = `notification ${type} show`;
-
-  setTimeout(() => {
-    notification.classList.remove('show');
-  }, 3000);
+  setTimeout(() => notification.classList.remove('show'), 3000);
 }
 
-// Request notification permission
 if ('Notification' in window && Notification.permission === 'default') {
   Notification.requestPermission();
 }
@@ -519,17 +538,12 @@ if ('Notification' in window && Notification.permission === 'default') {
 // AUTO-FILL ID PELANGGAN (MASTER LOOKUP)
 // ==========================================
 
-// Lookup eksak — isi semua field otomatis
 async function lookupAndFill(idPelanggan) {
   const indicator = document.getElementById('lookupIndicator');
   if (indicator) { indicator.textContent = '🔍 Mencari...'; indicator.className = 'lookup-indicator looking'; }
 
   try {
-    const response = await fetch(API_URL, {
-      method: 'POST',
-      body: JSON.stringify({ action: 'lookupPelanggan', idPelanggan })
-    });
-    const result = await response.json();
+    const result = await callAPI({ action: 'lookupPelanggan', idPelanggan });
 
     if (result.success) {
       fillFromMaster(result.data);
@@ -540,19 +554,12 @@ async function lookupAndFill(idPelanggan) {
     }
   } catch (err) {
     if (indicator) { indicator.textContent = ''; indicator.className = 'lookup-indicator'; }
-    console.error('lookupAndFill error:', err);
   }
 }
 
-// Fetch suggestions untuk autocomplete dropdown
 async function fetchSuggestions(query) {
   try {
-    const response = await fetch(API_URL, {
-      method: 'POST',
-      body: JSON.stringify({ action: 'searchPelanggan', query, limit: 7 })
-    });
-    const result = await response.json();
-
+    const result = await callAPI({ action: 'searchPelanggan', query, limit: 7 });
     if (result.success && result.data.suggestions.length > 0) {
       showSuggestions(result.data.suggestions);
     } else {
@@ -563,12 +570,11 @@ async function fetchSuggestions(query) {
   }
 }
 
-// Tampilkan dropdown suggestions
 function showSuggestions(suggestions) {
   let dropdown = document.getElementById('suggestionDropdown');
   if (!dropdown) {
     dropdown = document.createElement('div');
-    dropdown.id = 'suggestionDropdown';
+    dropdown.id        = 'suggestionDropdown';
     dropdown.className = 'suggestion-dropdown';
     const wrapper = document.getElementById('idPelanggan').closest('.id-input-wrapper') || document.getElementById('idPelanggan').parentNode;
     wrapper.style.position = 'relative';
@@ -586,7 +592,6 @@ function showSuggestions(suggestions) {
   dropdown.style.display = 'block';
 }
 
-// User klik salah satu suggestion
 function selectSuggestion(data) {
   document.getElementById('idPelanggan').value = data.idPelanggan;
   hideSuggestions();
@@ -594,14 +599,11 @@ function selectSuggestion(data) {
   showNotification('✅ Data pelanggan diisi otomatis!', 'success');
 }
 
-// Isi field form dari data master
 function fillFromMaster(data) {
   if (data.nama)          document.getElementById('nama').value          = data.nama;
-  // master tidak punya alamat — isi dengan lokasiBlok sebagai referensi awal
   if (data.lokasiBlok)    document.getElementById('alamat').value        = data.lokasiBlok;
   if (data.jenisPengguna) document.getElementById('jenisPengguna').value = data.jenisPengguna;
 
-  // ✅ BARU: auto-fill SPAM/Wilayah
   const spamVal = data.spam || data.wilayah || '';
   const spamEl  = document.getElementById('spamWilayah');
   if (spamEl) {
@@ -610,7 +612,6 @@ function fillFromMaster(data) {
     if (ind) ind.textContent = spamVal ? '✅ Terisi otomatis' : '';
   }
 
-  // Highlight field yang terisi otomatis
   ['nama', 'alamat', 'jenisPengguna'].forEach(id => {
     const el = document.getElementById(id);
     if (el) {
@@ -619,14 +620,12 @@ function fillFromMaster(data) {
     }
   });
 
-  // Highlight SPAM
   if (spamEl && spamVal) {
     spamEl.style.background = '#e8f5e9';
     setTimeout(() => { spamEl.style.background = '#f0f4ff'; }, 2500);
   }
 }
 
-// Kosongkan field auto-fill saat ID dihapus
 function clearAutoFill() {
   const indicator = document.getElementById('lookupIndicator');
   if (indicator) { indicator.textContent = ''; indicator.className = 'lookup-indicator'; }
