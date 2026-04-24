@@ -8,8 +8,8 @@
 const API_CONFIG = (function() {
   // URL dipecah agar tidak mudah di-scrape bot
   const _p1 = 'https://script.google.com';
-  const _p2 = '/macros/s/AKfycbwSzuAWdMOa6FeJw7LhgniHFPnODJVX4cLN2Gfy';
-  const _p3 = 'BaPFdeWmxBAyXlwbN8cFhvW9iQP';
+  const _p2 = '/macros/s/AKfycbzpGqf7w6fwmhZ';
+  const _p3 = 'XHOYAgGlhsFzO5bPp5EskikCx5iPtAhNQpzAwD3RFm3BXjxTwYZi';
   const _p4 = '/exec';
   return {
     url:    _p1 + _p2 + _p3 + _p4,
